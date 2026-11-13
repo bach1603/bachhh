@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Giám sát té ngã</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>
+
+/* ===== DARK THEME REDESIGN ===== */
+:root {
+  --paper: #0B1220;
+  --white: #151F32;
+  --ink: #EDF3FF;
+  --ink-soft: #9AAAC4;
+  --line: #2A3952;
+  --calm: #36D6C2;
+  --caution: #FFBD59;
+  --alarm: #FF647C;
+  --state: var(--calm);
+  --state-wash: #142D3A;
+  --font: "Lexend", "Segoe UI", system-ui, sans-serif;
+}
+html { background: #0B1220; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at 12% 0%, rgba(32, 91, 130, .24), transparent 34%),
+    radial-gradient(ellipse at 92% 12%, rgba(81, 54, 132, .18), transparent 30%),
+    #0B1220;
+  font: 400 15px/1.6 var(--font);
+}
+.page {
+  width: min(100% - 64px, 1540px);
+  max-width: 1540px;
+  margin: 0 auto;
+  padding: 42px 0 64px;
+}
+.top {
+  align-items: center;
+  margin-bottom: 34px;
+  padding: 0 2px 24px;
+  border-bottom: 1px solid #26354C;
+}
+.top h1 {
+  color: #F4F7FF;
+  font-size: clamp(36px, 4.2vw, 54px);
+  font-weight: 700;
+  letter-spacing: -.055em;
+}
+.top p { color: #91A3C0; font-size: 15px; margin-top: 10px; }
+.link {
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: #17243A;
+  border: 1px solid #31435F;
+  color: #E8F0FF;
+  box-shadow: 0 8px 28px rgba(0,0,0,.22);
+  font-size: 14px;
+}
+.link i { box-shadow: 0 0 0 5px rgba(148,163,184,.12); }
+.link[data-state="ok"] i { background: #36D6C2; box-shadow: 0 0 0 5px rgba(54,214,194,.14); }
+.link[data-state="wait"] i { background: #FFBD59; box-shadow: 0 0 0 5px rgba(255,189,89,.14); }
+.link[data-state="off"] i { background: #FF647C; box-shadow: 0 0 0 5px rgba(255,100,124,.14); }
+
+.main {
+  grid-template-columns: minmax(0, 1.65fr) minmax(340px, .95fr);
+  gap: 24px;
+}
+.stage {
+  min-height: 430px;
+  grid-template-columns: minmax(280px, 390px) 1fr;
+  gap: 34px;
+  padding: 34px;
+  border-radius: 28px;
+  border: 1px solid #2A4560;
+  background: linear-gradient(135deg, #142D3A 0%, #17243A 72%, #19243B 100%);
+  box-shadow: 0 18px 50px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.035);
+}
+.stage[data-state="warn"] {
+  --state: #FFBD59;
+  --state-wash: #3A2C1C;
+  background: linear-gradient(135deg, #3A2C1C, #1B2639 82%);
+}
+.stage[data-state="fall"] {
+  --state: #FF647C;
+  --state-wash: #3B1D2B;
+  background: linear-gradient(135deg, #3B1D2B, #1B2639 82%);
+}
+.stage[data-state="manual"] {
+  --state: #9CAFEA;
+  --state-wash: #202D49;
+  background: linear-gradient(135deg, #202D49, #17243A 82%);
+}
+.stage[data-state="idle"] {
+  --state: #91A3C0;
+  --state-wash: #1B2940;
+  background: linear-gradient(135deg, #1B2940, #17243A 82%);
+}
+.dial { max-width: 390px; }
+.state-word {
+  color: var(--state);
+  font-size: clamp(38px, 4.4vw, 60px);
+  letter-spacing: -.05em;
+}
+.state-desc { color: #D6E0F0; font-size: 15px; line-height: 1.7; }
+.tilt-read { margin-top: 32px; }
+.tilt-read .value-tilt { color: #F4F7FF; font-size: 76px; font-weight: 600; }
+.tilt-read span.unit, .tilt-read small, .last-fall { color: #9AAAC4; }
+.last-fall b { color: #F0F5FF; }
+
+.readings, .chart {
+  background: linear-gradient(160deg, #18253B, #131E31);
+  border: 1px solid #2A3952;
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 16px 42px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.025);
+}
+.readings h2 { color: #A8B8D1; font-size: 15px; }
+.big-acc { margin: 12px 0 8px; }
+.big-acc .value-accel { color: #F4F7FF; font-size: 66px; }
+.big-acc span.unit { color: #A8B8D1; }
+.hint { color: #91A3C0; font-size: 13px; line-height: 1.65; margin-bottom: 22px; }
+.axis { border-top-color: #2A3952; padding: 12px 0; font-size: 14px; }
+.axis b { color: #B9C8DF; }
+.track { background: #0D1728; }
+.track::after { background: #43536D; }
+.bar { background: linear-gradient(90deg, #36D6C2, #5D9BFF); }
+.axis output { color: #E5EDFA; }
+.pair { border-top-color: #2A3952; margin-top: 20px; padding-top: 20px; }
+.pair div > span { color: #91A3C0; font-size: 13px; }
+.pair div strong { color: #F0F5FF; font-size: 30px; }
+
+.charts {
+  gap: 24px;
+  margin-top: 24px;
+}
+.chart { padding: 26px 28px 20px; }
+.chart h2 { color: #EDF3FF; font-size: 18px; }
+.chart p { color: #91A3C0; font-size: 13px; margin: 6px 0 16px; }
+.chart-box { height: 310px; }
+
+.control {
+  margin-top: 24px;
+  grid-template-columns: 190px minmax(220px,1fr) minmax(220px,1fr) auto;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid #354966;
+  border-radius: 24px;
+  background: linear-gradient(115deg, #172944, #1D3152 58%, #202B49);
+  box-shadow: 0 18px 45px rgba(0,0,0,.28);
+}
+.mode span { color: #A6B7D1; font-size: 13px; }
+.mode strong { color: #F4F7FF; font-size: 25px; }
+.switch {
+  min-height: 72px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border-color: #405675;
+  background: rgba(8,17,32,.35);
+  color: #F0F5FF;
+  font-size: 16px;
+}
+.switch small { color: #A6B7D1; font-size: 12px; }
+.knob { background: #536580; }
+.knob::after { background: #F4F7FF; }
+.auto {
+  min-height: 58px;
+  padding: 16px 22px;
+  border-radius: 15px;
+  background: #DCE9FF;
+  color: #14233C;
+  font-size: 15px;
+}
+.ack { background: rgba(5,13,26,.38); color: #E5EDFA; padding: 13px 16px; }
+.ack[data-kind="ok"] { background: rgba(54,214,194,.15); }
+.ack[data-kind="wait"] { background: rgba(255,189,89,.15); }
+.ack[data-kind="bad"] { background: rgba(255,100,124,.16); }
+.control-note { color: #A6B7D1; font-size: 12px; }
+
+.log {
+  margin-top: 32px;
+  grid-template-columns: 230px 1fr;
+  gap: 28px;
+}
+.log h2 { color: #EDF3FF; font-size: 20px; }
+.log h2 + p { color: #91A3C0; font-size: 13px; }
+.log ol { border-top-color: #2A3952; }
+.log li { border-bottom-color: #2A3952; padding: 14px 4px; color: #DCE6F5; font-size: 14px; }
+.log li time { color: #91A3C0; font-size: 13px; }
+.log .empty { color: #91A3C0; }
+.foot { color: #71839F; margin-top: 36px; font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .page { width: min(100% - 40px, 1540px); }
+  .main { grid-template-columns: 1fr; }
+  .stage { grid-template-columns: minmax(240px, 340px) 1fr; }
+  .control { grid-template-columns: 1fr 1fr; }
+  .mode, .auto { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .page { width: min(100% - 28px, 1540px); padding: 24px 0 36px; }
+  .top { margin-bottom: 22px; }
+  .stage { grid-template-columns: 1fr; min-height: 0; padding: 22px 18px; text-align: center; }
+  .dial { max-width: 280px; }
+  .state-desc { margin-inline: auto; }
+  .tilt-read { justify-content: center; }
+  .readings, .chart { padding: 20px; }
+  .chart-box { height: 250px; }
+  .control { grid-template-columns: 1fr; padding: 20px; }
+  .mode, .auto { grid-column: auto; }
+  .log { grid-template-columns: 1fr; gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .figure, .stage, .state-word, .bar, .knob, .knob::after { transition: none; }
+  .stage[data-state="fall"] .ring { animation: none; opacity: .6; }
+}
+/* ===== END DARK THEME REDESIGN ===== */
+
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="top">
+    <div>
+      <h1>Giám sát té ngã</h1>
+      <p>ESP32 đọc cảm biến MPU6050 và gửi dữ liệu qua MQTT mỗi nửa giây</p>
+    </div>
+    <div class="link" id="link" data-state="wait" role="status" aria-live="polite"><i></i><span id="linkText">Đang kết nối broker...</span></div>
+  </header>
+
+  <section class="main">
+    <div class="stage" id="stage" data-state="idle" aria-live="polite">
+      <div class="dial">
+        <svg viewBox="0 0 320 320" role="img" aria-label="Tư thế cơ thể theo góc nghiêng">
+          <circle cx="160" cy="160" r="146" fill="#21314B" opacity=".92"/>
+          <!-- vùng nghiêng bất thường: quá 60° về hai phía -->
+          <path d="M160 160 L286.4 87 A146 146 0 0 1 306 160 Z" fill="#D7263D" opacity=".16"/>
+          <path d="M160 160 L33.6 87 A146 146 0 0 0 14 160 Z" fill="#D7263D" opacity=".16"/>
+          <g id="ticks"></g>
+          <circle class="ring" cx="160" cy="160" r="150"/>
+          <g class="figure" id="figure">
+            <line x1="160" y1="160" x2="160" y2="22" style="stroke:var(--state)" stroke-width="3" stroke-dasharray="6 6" opacity=".6"/>
+            <circle cx="160" cy="92" r="17" style="fill:var(--state)"/>
+            <path d="M160 112 L160 190" style="stroke:var(--state)" stroke-width="14" stroke-linecap="round"/>
+            <path d="M160 128 L132 166 M160 128 L188 166" style="stroke:var(--state)" stroke-width="11" stroke-linecap="round"/>
+            <path d="M160 188 L140 246 M160 188 L180 246" style="stroke:var(--state)" stroke-width="12" stroke-linecap="round"/>
+          </g>
+          <circle cx="160" cy="160" r="5" style="fill:var(--ink)"/>
+        </svg>
+      </div>
+      <div>
+        <p class="state-word" id="stateWord">Chờ dữ liệu</p>
+        <p class="state-desc" id="stateDesc">Trang đang chờ bản tin đầu tiên từ ESP32 trên topic dữ liệu.</p>
+        <div class="tilt-read">
+          <span class="value-tilt" id="tilt">--</span><span class="unit">°</span>
+          <small>góc nghiêng so với<br>tư thế đứng thẳng</small>
+        </div>
+        <p class="last-fall">Té ngã gần nhất: <b id="lastFall">chưa ghi nhận</b></p>
+      </div>
+    </div>
+
+    <aside class="readings" aria-label="Số đo gia tốc">
+      <h2>Gia tốc tổng</h2>
+      <div class="big-acc"><span class="value-accel" id="accel">-.--</span><span class="unit">g</span></div>
+      <p class="hint">Đứng yên khoảng 1 g. Dưới 0,4 g là rơi tự do, trên 2,5 g là va đập.</p>
+      <div class="axis"><b>ax</b><div class="track"><div class="bar" id="barX"></div></div><output class="value-ax">--</output></div>
+      <div class="axis"><b>ay</b><div class="track"><div class="bar" id="barY"></div></div><output class="value-ay">--</output></div>
+      <div class="axis"><b>az</b><div class="track"><div class="bar" id="barZ"></div></div><output class="value-az">--</output></div>
+      <div class="pair">
+        <div><span>Pitch, nghiêng trước sau</span><strong><span class="value-pitch">--</span>°</strong></div>
+        <div><span>Roll, nghiêng trái phải</span><strong><span class="value-roll">--</span>°</strong></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="charts">
+    <div class="chart">
+      <h2>Gia tốc tổng theo thời gian</h2>
+      <p>40 lần gửi gần nhất; đường đứt là ngưỡng 0,4 g và 2,5 g</p>
+      <div class="chart-box"><canvas id="accChart" aria-label="Biểu đồ gia tốc tổng"></canvas></div>
+    </div>
+    <div class="chart">
+      <h2>Góc nghiêng theo thời gian</h2>
+      <p>40 lần gửi gần nhất; đường đứt là ngưỡng 60°</p>
+      <div class="chart-box"><canvas id="tiltChart" aria-label="Biểu đồ góc nghiêng"></canvas></div>
+    </div>
+  </section>
+
+  <section class="control" aria-label="Điều khiển đèn và còi">
+    <div class="mode"><span>Chế độ</span><strong id="modeText">Tự động</strong></div>
+    <button class="switch led" id="btnLed" role="switch" aria-checked="false" disabled>
+      <span>Đèn cảnh báo<small id="ledText">Đang tắt</small></span><span class="knob"></span>
+    </button>
+    <button class="switch buzz" id="btnBuzzer" role="switch" aria-checked="false" disabled>
+      <span>Còi cảnh báo<small id="buzText">Đang tắt</small></span><span class="knob"></span>
+    </button>
+    <button class="auto" id="btnAuto" disabled>Về tự động</button>
+    <p class="ack" id="ack" role="status" aria-live="polite">Bấm công tắc để gửi lệnh; dòng này sẽ báo ESP32 đã làm theo hay chưa.</p>
+    <p class="control-note">Bấm công tắc để chuyển sang thủ công; công tắc chỉ đổi khi ESP32 báo lại trạng thái thật. Hệ thống tự về tự động sau 15 giây, hoặc ngay khi phát hiện té ngã mới.</p>
+  </section>
+
+  <section class="log">
+    <div><h2>Nhật ký sự kiện</h2><p>Mỗi lần trạng thái thay đổi</p></div>
+    <ol id="events"><li class="empty-row"><span class="empty">Chưa có sự kiện nào.</span></li></ol>
+  </section>
+
+  <p class="foot" id="foot">Topic dữ liệu: lab3/falldetect/data. Topic lệnh: lab3/falldetect/cmd.</p>
+</div>
+
+<script>
+  // Các thông số này phải trùng với firmware ESP32.
+  const BROKER_URL = "wss://broker.emqx.io:8084/mqtt";
+  const TOPIC_DATA = "bach/falldetect/data";
+  const TOPIC_CMD  = "bach/falldetect/cmd";
+  const MAX_POINTS = 40;
+  const FREEFALL_G = 0.4;   // trùng FREEFALL_G trong firmware
+  const IMPACT_G   = 2.5;   // trùng IMPACT_G
+  const TILT_LYING = 60.0;  // trùng TILT_LYING
+
+  const $ = (id) => document.getElementById(id);
+  // Số đo hiển thị trên các thẻ HTML có class (theo yêu cầu đề bài)
+  const setByClass = (cls, text) => document.querySelectorAll("." + cls).forEach((el) => { el.textContent = text; });
+  const state = { led: false, buzzer: false, mode: "auto", alert: null };
+  // Lệnh vừa gửi đang chờ ESP32 xác nhận qua bản tin dữ liệu
+  let pending = null;
+  const EXPECT = {
+    led_on:     (d) => d.mode === "manual" && Number(d.led) === 1,
+    led_off:    (d) => d.mode === "manual" && Number(d.led) === 0,
+    buzzer_on:  (d) => d.mode === "manual" && Number(d.buzzer) === 1,
+    buzzer_off: (d) => d.mode === "manual" && Number(d.buzzer) === 0,
+    auto:       (d) => d.mode === "auto",
+  };
+  function setAck(kind, text) { $("ack").dataset.kind = kind; $("ack").textContent = text; }
+  let lastMsg = 0;
+
+  // Vạch chia 15° trên vòng đo
+  (function drawTicks() {
+    let s = "";
+    for (let d = -90; d <= 90; d += 15) {
+      const r = (d - 90) * Math.PI / 180, big = d % 45 === 0;
+      const x1 = 160 + Math.cos(r) * 146, y1 = 160 + Math.sin(r) * 146;
+      const x2 = 160 + Math.cos(r) * (big ? 128 : 136), y2 = 160 + Math.sin(r) * (big ? 128 : 136);
+      s += '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="#C3D0E4" stroke-width="' + (big ? 3 : 1.5) + '" opacity=".5"/>';
+    }
+    $("ticks").innerHTML = s;
+  })();
+
+  // ---- Biểu đồ ----
+  const thresholdPlugin = {
+    id: "thresholds",
+    afterDatasetsDraw(chart, args, opts) {
+      if (!opts.values) return;
+      const { ctx, chartArea, scales } = chart;
+      ctx.save();
+      ctx.setLineDash([7, 6]); ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(255,100,124,.82)";
+      opts.values.forEach((v) => {
+        const y = scales.y.getPixelForValue(v);
+        if (y < chartArea.top || y > chartArea.bottom) return;
+        ctx.beginPath(); ctx.moveTo(chartArea.left, y); ctx.lineTo(chartArea.right, y); ctx.stroke();
+      });
+      ctx.restore();
+    },
+  };
+  function makeChart(id, color, values, suggest) {
+    return new Chart($(id).getContext("2d"), {
+      type: "line",
+      plugins: [thresholdPlugin],
+      data: { labels: [], datasets: [{ data: [], borderColor: color, backgroundColor: color + "22", fill: true, borderWidth: 2.4, pointRadius: 0, tension: 0.25 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { intersect: false, mode: "index" },
+        plugins: { legend: { display: false }, thresholds: { values }, tooltip: { backgroundColor: "#101B2D", displayColors: false } },
+        scales: {
+          x: { ticks: { color: "#9AAAC4", maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+          y: { suggestedMin: suggest[0], suggestedMax: suggest[1], ticks: { color: "#9AAAC4", maxTicksLimit: 6 }, grid: { color: "#2A3952" }, border: { display: false } },
+        },
+      },
+    });
+  }
+  const accChart = makeChart("accChart", "#36D6C2", [FREEFALL_G, IMPACT_G], [0, 3]);
+  const tiltChart = makeChart("tiltChart", "#78A8FF", [TILT_LYING], [0, 90]);
+  function addPoint(chart, label, value) {
+    chart.data.labels.push(label);
+    chart.data.datasets[0].data.push(value);
+    if (chart.data.labels.length > MAX_POINTS) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+    chart.update("none");
+  }
+
+  // ---- Trạng thái và nhật ký ----
+  const STATES = {
+    none:   ["ok",     "Đang đứng vững",     "Không có dấu hiệu bất thường. Đèn và còi đang tắt."],
+    impact: ["warn",   "Có va đập",          "Gia tốc vượt ngưỡng va đập hoặc rơi tự do. Đèn cảnh báo đang bật."],
+    tilt:   ["warn",   "Nghiêng bất thường", "Cơ thể nghiêng đột ngột hoặc đang nằm. Đèn cảnh báo đang bật."],
+    fall:   ["fall",   "Phát hiện té ngã",   "Có va đập kèm góc nghiêng đổi đột ngột. Còi đang kêu, hãy kiểm tra người dùng ngay."],
+    manual: ["manual", "Điều khiển thủ công", "Đèn và còi đang theo lệnh từ trang này. Tự về tự động sau 15 giây."],
+  };
+  const LOG_TEXT = { none: "Trở lại bình thường", impact: "Phát hiện va đập", tilt: "Nghiêng bất thường", fall: "Phát hiện té ngã", manual: "Chuyển sang điều khiển thủ công" };
+  function addEvent(cls, text) {
+    const list = $("events");
+    const empty = list.querySelector(".empty-row");
+    if (empty) empty.remove();
+    const li = document.createElement("li");
+    li.className = cls;
+    li.innerHTML = "<time></time><i></i><span></span>";
+    li.querySelector("time").textContent = new Date().toLocaleTimeString("vi-VN");
+    li.querySelector("span").textContent = text;
+    list.prepend(li);
+    while (list.children.length > 8) list.lastElementChild.remove();
+  }
+  function renderState(code) {
+    const s = STATES[code] || STATES.none;
+    const key = STATES[code] ? code : "none";
+    $("stage").dataset.state = s[0] === "ok" ? "" : s[0];
+    $("stateWord").textContent = s[1];
+    $("stateDesc").textContent = s[2];
+    if (state.alert !== key) {
+      if (state.alert !== null || key !== "none") addEvent(s[0] === "fall" ? "fall" : s[0] === "warn" ? "warn" : "ok", LOG_TEXT[key]);
+      if (key === "fall") $("lastFall").textContent = new Date().toLocaleTimeString("vi-VN");
+      state.alert = key;
+    }
+  }
+
+  function setBar(id, v) {
+    const c = Math.max(-3, Math.min(3, v)) / 3 * 50;   // -3..3 g -> -50%..50%
+    const bar = $(id).style;
+    bar.left = (c < 0 ? 50 + c : 50) + "%";
+    bar.width = Math.abs(c) + "%";
+  }
+
+  function onData(payload) {
+    let d;
+    try { d = JSON.parse(payload.toString()); } catch (e) { return; }
+    const a = Number(d.a), tilt = Number(d.tilt), pitch = Number(d.pitch), roll = Number(d.roll);
+    const ax = Number(d.ax), ay = Number(d.ay), az = Number(d.az);
+    if (![a, tilt, pitch, roll].every(Number.isFinite)) return;
+    lastMsg = Date.now();
+    const time = new Date().toLocaleTimeString("vi-VN");
+
+    setByClass("value-accel", a.toFixed(2));
+    setByClass("value-tilt", tilt.toFixed(0));
+    setByClass("value-pitch", pitch.toFixed(1));
+    setByClass("value-roll", roll.toFixed(1));
+    if ([ax, ay, az].every(Number.isFinite)) {
+      setByClass("value-ax", ax.toFixed(2)); setByClass("value-ay", ay.toFixed(2)); setByClass("value-az", az.toFixed(2));
+      setBar("barX", ax); setBar("barY", ay); setBar("barZ", az);
+      // Hình người nghiêng theo góc thật, về phía trục ngang lớn hơn
+      const side = Math.abs(ax) >= Math.abs(ay) ? Math.sign(ax) || 1 : Math.sign(ay) || 1;
+      $("figure").style.transform = "rotate(" + (tilt * side).toFixed(1) + "deg)";
+    }
+    addPoint(accChart, time, a);
+    addPoint(tiltChart, time, tilt);
+
+    state.led = Number(d.led) === 1;
+    state.buzzer = Number(d.buzzer) === 1;
+    state.mode = String(d.mode || "auto");
+    $("btnLed").setAttribute("aria-checked", String(state.led));
+    $("btnBuzzer").setAttribute("aria-checked", String(state.buzzer));
+    $("ledText").textContent = state.led ? "Đang sáng" : "Đang tắt";
+    $("buzText").textContent = state.buzzer ? "Đang kêu" : "Đang tắt";
+    $("modeText").textContent = state.mode === "manual" ? "Thủ công" : "Tự động";
+    renderState(String(d.alert || "none"));
+    if (pending && EXPECT[pending.cmd](d)) {
+      setAck("ok", "ESP32 đã làm theo lệnh " + pending.cmd + " sau " + ((Date.now() - pending.at) / 1000).toFixed(1) + " giây.");
+      pending = null;
+    }
+    $("foot").textContent = "Cập nhật lúc " + time + ". Topic dữ liệu: " + TOPIC_DATA + ". Topic lệnh: " + TOPIC_CMD + ".";
+  }
+
+  // ---- MQTT ----
+  function setLink(kind, text) { $("link").dataset.state = kind; $("linkText").textContent = text; }
+  function setButtons(on) { ["btnLed", "btnBuzzer", "btnAuto"].forEach((id) => { $(id).disabled = !on; }); }
+  const client = mqtt.connect(BROKER_URL, {
+    clientId: "fall-web-" + Math.random().toString(16).slice(2, 10),
+    reconnectPeriod: 2000, connectTimeout: 8000, clean: true,
+  });
+  client.on("connect", () => {
+    setLink("ok", "Đã kết nối broker");
+    client.subscribe(TOPIC_DATA, { qos: 0 });
+    setButtons(true);
+  });
+  client.on("reconnect", () => { setLink("wait", "Đang kết nối lại broker..."); setButtons(false); });
+  client.on("offline", () => { setLink("off", "Mất kết nối broker"); setButtons(false); });
+  client.on("error", (err) => { setLink("off", "Lỗi kết nối: " + err.message); setButtons(false); });
+  client.on("message", (topic, payload) => { if (topic === TOPIC_DATA) onData(payload); });
+
+  function send(cmd) {
+    if (!client.connected) { setAck("bad", "Trang chưa kết nối broker nên chưa gửi được lệnh " + cmd + "."); return; }
+    client.publish(TOPIC_CMD, cmd, { qos: 0, retain: false });
+    pending = { cmd, at: Date.now() };
+    setAck("wait", "Đã gửi lệnh " + cmd + " lên broker, đang chờ ESP32 xác nhận...");
+  }
+  $("btnLed").addEventListener("click", () => send(state.led ? "led_off" : "led_on"));
+  $("btnBuzzer").addEventListener("click", () => send(state.buzzer ? "buzzer_off" : "buzzer_on"));
+  $("btnAuto").addEventListener("click", () => send("auto"));
+
+  // Báo khi ESP32 ngừng gửi
+  setInterval(() => {
+    if (pending && Date.now() - pending.at > 3000) {
+      setAck("bad", "ESP32 chưa làm theo lệnh " + pending.cmd + " sau 3 giây. Lệnh đã lên broker nhưng ESP32 không nhận: xem Serial có dòng Nhan lenh không, và ESP32 còn kết nối broker không.");
+      pending = null;
+    }
+    if (lastMsg && Date.now() - lastMsg > 5000) {
+      $("stage").dataset.state = "idle";
+      $("stateWord").textContent = "Mất dữ liệu";
+      $("stateDesc").textContent = "Hơn 5 giây không có bản tin mới. Kiểm tra mạch đang chạy và WiFi của ESP32.";
+    }
+  }, 1000);
+</script>
+</body>
+</html>
